@@ -1,0 +1,51 @@
+name: Crawl GitHub Stars
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *"  # daily at midnight
+
+jobs:
+  crawl-stars:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: github_data
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run crawler
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -m crawler.main
+
+      - name: Dump database to CSV
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d github_data \
+            -c "\COPY repositories TO 'repos.csv' CSV HEADER"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-stars
+          path: repos.csv
